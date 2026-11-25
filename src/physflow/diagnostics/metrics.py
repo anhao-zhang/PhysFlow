@@ -1,12 +1,31 @@
-"""Trajectory smoothness and two-dimensional sample distance metrics."""
+"""Phase-space and two-dimensional sample distance metrics."""
 
 from __future__ import annotations
+
+import math
 
 import numpy as np
 import torch
 from scipy.stats import wasserstein_distance
 
 from physflow.samplers.base import Trajectory
+
+
+def kinetic_energy_trace(traj: Trajectory, mass: float = 1.0) -> list[float]:
+    """Return the mean kinetic energy across particles at each velocity snapshot."""
+    if not (math.isfinite(mass) and mass > 0):
+        raise ValueError("mass must be finite and positive")
+    velocities = traj.stack_vs()
+    if velocities is None:
+        if traj.vs is None:
+            raise ValueError("Trajectory has no velocity snapshots")
+        return []
+    velocities = velocities.detach()
+    if velocities.dtype != torch.float64:
+        velocities = velocities.float()
+    dims = math.prod(velocities.shape[2:])
+    speed_squared = velocities.reshape(*velocities.shape[:2], dims).square().sum(dim=2)
+    return (0.5 * mass * speed_squared.mean(dim=1)).tolist()
 
 
 def trajectory_curvature(traj: Trajectory) -> float:

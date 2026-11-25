@@ -15,11 +15,14 @@ ScoreFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
 @dataclass
 class SamplerState:
+    """Positions, optional velocities, and a force cache valid at the current state."""
+
     x: torch.Tensor
     sigma: torch.Tensor
     v: torch.Tensor | None = None
     step_index: int = 0
     nfe: int = 0
+    force: torch.Tensor | None = None
 
 
 @dataclass
@@ -32,6 +35,10 @@ class Trajectory:
     def stack_xs(self) -> torch.Tensor:
         """Stack position snapshots in (time, batch, *dims) order."""
         return torch.stack(self.xs)
+
+    def stack_vs(self) -> torch.Tensor | None:
+        """Stack velocity snapshots in (time, batch, *dims) order when present."""
+        return torch.stack(self.vs) if self.vs else None
 
 
 class BaseSampler(ABC):
@@ -66,6 +73,10 @@ class BaseSampler(ABC):
             x = x_init.to(device=device, dtype=dtype)
         return SamplerState(x=x, sigma=sigma)
 
+    def _prepare_state(self, state: SamplerState, score_fn: ScoreFn) -> SamplerState:
+        """Finish any score-dependent initialization before recording the trajectory."""
+        return state
+
     @abstractmethod
     def step(
         self,
@@ -89,6 +100,7 @@ class BaseSampler(ABC):
     ) -> torch.Tensor | tuple[torch.Tensor, Trajectory]:
         """Run the sampler and optionally record positions and momenta on their device."""
         state = self.init_state(shape, device, dtype, generator, x_init)
+        state = self._prepare_state(state, score_fn)
         sigmas = self.schedule.get_sigmas(self.num_steps, state.x.device, state.x.dtype)
         trajectory = None
         if return_traj:
@@ -102,7 +114,9 @@ class BaseSampler(ABC):
             state = self.step(state, sigma_next, score_fn, generator)
             if trajectory is not None:
                 trajectory.xs.append(state.x.detach().clone())
-                if trajectory.vs is not None and state.v is not None:
+                if state.v is not None:
+                    if trajectory.vs is None:
+                        trajectory.vs = []
                     trajectory.vs.append(state.v.detach().clone())
 
         if trajectory is not None:

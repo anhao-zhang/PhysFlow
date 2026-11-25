@@ -29,4 +29,11 @@ class HeunSampler(BaseSampler):
             x_next = state.x + (0.5 * delta) * (derivative + derivative_next)
             nfe += 1
 
-        return replace(state, x=x_next, sigma=sigma_next, step_index=state.step_index + 1, nfe=nfe)
+        return replace(
+            state,
+            x=x_next,
+            sigma=sigma_next,
+            step_index=state.step_index + 1,
+            nfe=nfe,
+            force=None,
+        )

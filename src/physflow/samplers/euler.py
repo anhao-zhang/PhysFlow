@@ -22,5 +22,10 @@ class EulerSampler(BaseSampler):
         derivative = -state.sigma * score_fn(state.x, state.sigma)
         x_next = state.x + (sigma_next - state.sigma) * derivative
         return replace(
-            state, x=x_next, sigma=sigma_next, step_index=state.step_index + 1, nfe=state.nfe + 1
+            state,
+            x=x_next,
+            sigma=sigma_next,
+            step_index=state.step_index + 1,
+            nfe=state.nfe + 1,
+            force=None,
         )
