@@ -16,6 +16,8 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-      - run: python -m pip install -e ".[dev]"
+      - run: python -m pip install -e ".[dev,diffusers]"
       - run: ruff check src tests benchmarks
       - run: pytest -v
+        env:
+          HF_HUB_OFFLINE: "1"

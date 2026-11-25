@@ -56,7 +56,9 @@ class UnderdampedLangevinSampler(_MomentumSampler):
 
         half_h = 0.5 * h
         x_mid = x + half_h * velocity
-        noise = torch.randn(x.shape, device=x.device, dtype=x.dtype, generator=generator)
+        noise_device = x.device if generator is None else generator.device
+        noise = torch.randn(x.shape, device=noise_device, dtype=x.dtype, generator=generator)
+        noise = noise.to(device=x.device)
         variance_factor = -torch.expm1(-2 * decay)
         eta = variance_factor.sqrt() * math.sqrt(self.temperature) * sigma_next
         noisy_velocity = velocity + eta * noise

@@ -43,6 +43,28 @@ class _MomentumSampler(BaseSampler):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         return x + h * velocity, velocity
 
+    def _start_interval(
+        self,
+        x: torch.Tensor,
+        velocity: torch.Tensor,
+        force: torch.Tensor,
+        sigma: torch.Tensor,
+        sigma_next: torch.Tensor,
+        generator: torch.Generator | None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Apply the initial kick and drift, leaving the endpoint kick pending."""
+        h = sigma - sigma_next
+        # Relax velocity in log-sigma time while integrating position in sigma.
+        dtype = torch.float64 if sigma.dtype == torch.float64 else torch.float32
+        current = sigma.to(dtype=dtype)
+        following = sigma_next.to(dtype=dtype)
+        delta_tau = torch.log1p((current - following) / following)
+        decay = self._relaxation_rate * delta_tau
+        kick_fraction = (-torch.expm1(-0.5 * decay)).to(dtype=x.dtype)
+        velocity = torch.lerp(velocity, force, kick_fraction)
+        x_next, velocity = self._drift(x, velocity, h, sigma_next, decay, generator)
+        return x_next, velocity, kick_fraction
+
     def step(
         self,
         state: SamplerState,
@@ -50,7 +72,6 @@ class _MomentumSampler(BaseSampler):
         score_fn: ScoreFn,
         generator: torch.Generator | None = None,
     ) -> SamplerState:
-        h = state.sigma - sigma_next
         force, nfe = state.force, state.nfe
         if force is None:
             force = state.sigma * score_fn(state.x, state.sigma)
@@ -58,22 +79,16 @@ class _MomentumSampler(BaseSampler):
 
         if sigma_next == 0:
             return SamplerState(
-                x=state.x + h * force,
+                x=state.x + state.sigma * force,
                 sigma=sigma_next,
                 v=force,
                 step_index=state.step_index + 1,
                 nfe=nfe,
             )
 
-        # Relax velocity in log-sigma time while integrating position in sigma.
-        dtype = torch.float64 if state.sigma.dtype == torch.float64 else torch.float32
-        sigma = state.sigma.to(dtype=dtype)
-        next_sigma = sigma_next.to(dtype=dtype)
-        delta_tau = torch.log1p((sigma - next_sigma) / next_sigma)
-        decay = self._relaxation_rate * delta_tau
-        kick_fraction = (-torch.expm1(-0.5 * decay)).to(dtype=state.x.dtype)
-        velocity = torch.lerp(self._velocity(state, force), force, kick_fraction)
-        x_next, velocity = self._drift(state.x, velocity, h, sigma_next, decay, generator)
+        x_next, velocity, kick_fraction = self._start_interval(
+            state.x, self._velocity(state, force), force, state.sigma, sigma_next, generator
+        )
         force_next = sigma_next * score_fn(x_next, sigma_next)
         return SamplerState(
             x=x_next,
